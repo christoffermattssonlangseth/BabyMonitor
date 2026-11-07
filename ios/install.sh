@@ -44,7 +44,7 @@ PY
 )"
 
 if [ -z "$phones" ]; then
-  fail "No iPhone found. Connect a phone with a cable, unlock it and tap "Trust This Computer", then run this again." 3
+  fail "No iPhone found. Connect a phone with a cable, unlock it and tap 'Trust This Computer', then run this again." 3
 fi
 echo "$phones" | while IFS=$'\t' read -r _ name; do echo "  • $name"; done
 
