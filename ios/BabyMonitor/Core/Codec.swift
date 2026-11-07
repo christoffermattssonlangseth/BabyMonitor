@@ -33,17 +33,15 @@ enum MuLaw {
     /// 16 kHz 16-bit little-endian PCM → 8 kHz µ-law (averages sample pairs).
     static func encode16kPCM(_ pcm: Data) -> Data {
         let pairs = pcm.count / 4
-        var out = Data(count: pairs)
-        pcm.withUnsafeBytes { raw in
-            out.withUnsafeMutableBytes { dst in
-                for i in 0..<pairs {
-                    let a = Int(Int16(littleEndian: raw.loadUnaligned(fromByteOffset: i * 4, as: Int16.self)))
-                    let b = Int(Int16(littleEndian: raw.loadUnaligned(fromByteOffset: i * 4 + 2, as: Int16.self)))
-                    dst[i] = encode(Int16((a + b) / 2))
-                }
+        var out = [UInt8](repeating: 0, count: pairs)
+        pcm.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+            for i in 0..<pairs {
+                let a = Int(Int16(littleEndian: raw.loadUnaligned(fromByteOffset: i * 4, as: Int16.self)))
+                let b = Int(Int16(littleEndian: raw.loadUnaligned(fromByteOffset: i * 4 + 2, as: Int16.self)))
+                out[i] = encode(Int16((a + b) / 2))
             }
         }
-        return out
+        return Data(out)
     }
 
     /// 8 kHz µ-law → 16 kHz 16-bit little-endian PCM (linear interpolation).
