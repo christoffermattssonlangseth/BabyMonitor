@@ -1,5 +1,17 @@
 # 🌙 Baby Monitor
 
+This repository holds two versions of the baby monitor:
+
+- **[iPhone app](ios/README.md)** (recommended for iPhones). The phones connect
+  directly over your Wi-Fi with no server. Live sound keeps playing and alerts
+  keep working while your phone is locked. You install it from Xcode on a Mac.
+- **Web app** (below). Runs in any browser, but needs a small server on a
+  computer at home.
+
+The two versions don't talk to each other: use one or the other on all devices.
+
+## Web app
+
 A private, self-hosted baby monitor. Put an old phone, tablet or laptop in the
 nursery as the **baby station**. Then open the app on your iPhones as
 **parent stations** to get:
