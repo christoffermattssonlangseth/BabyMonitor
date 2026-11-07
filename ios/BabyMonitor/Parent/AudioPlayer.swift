@@ -43,7 +43,7 @@ final class AudioPlayer {
     }
 
     func stop() {
-        observers.forEach(NotificationCenter.default.removeObserver)
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers.removeAll()
         engine.stop()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)

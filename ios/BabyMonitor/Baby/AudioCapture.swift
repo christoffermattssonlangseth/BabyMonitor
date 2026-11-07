@@ -47,7 +47,7 @@ final class AudioCapture {
     }
 
     func stop() {
-        observers.forEach(NotificationCenter.default.removeObserver)
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers.removeAll()
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
