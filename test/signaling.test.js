@@ -1,14 +1,23 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import WebSocket from 'ws';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 process.env.MONITOR_PASSWORD = 'correct horse';
 const { start } = await import('../server.js');
 
 let server;
 let url;
+const pushed = [];
 before(async () => {
-  server = await start({ port: 0, http: true });
+  server = await start({
+    port: 0,
+    http: true,
+    dataDir: await mkdtemp(path.join(tmpdir(), 'bm-')),
+    pushSend: async (sub, payload) => { pushed.push({ endpoint: sub.endpoint, ...JSON.parse(payload) }); },
+  });
   url = `ws://127.0.0.1:${server.address().port}/ws`;
 });
 after(() => { server.close(); server.closeAllConnections(); });
@@ -92,6 +101,37 @@ test('a new baby station replaces the old one', async () => {
   await second.next('welcome');
   assert.equal(await first.closed, 4004);
   second.close();
+});
+
+test('parents can subscribe to push alerts, which skip them while watching', async () => {
+  const parent = await client('parent');
+  const welcome = await parent.next('welcome');
+  assert.ok(welcome.vapidPublicKey);
+  const subscription = { endpoint: 'https://push.example/abc', keys: { p256dh: 'p', auth: 'a' } };
+  parent.send(JSON.stringify({ type: 'push-subscribe', subscription, threshold: 20, sustain: 0 }));
+  await parent.next('push-ok');
+  parent.send(JSON.stringify({ type: 'parent-state', endpoint: subscription.endpoint, visible: true }));
+
+  const baby = await client('baby');
+  await baby.next('welcome');
+  baby.send(JSON.stringify({ type: 'status', level: 80 }));
+  await parent.next('status');
+  assert.equal(pushed.length, 0, 'no push while the parent is watching');
+
+  // Phone locked: page reports hidden.
+  parent.send(JSON.stringify({ type: 'parent-state', endpoint: subscription.endpoint, visible: false }));
+  server.push.subs.get(subscription.endpoint).lastNoise = -Infinity;
+  baby.send(JSON.stringify({ type: 'status', level: 80 }));
+  await parent.next('status');
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(pushed.length, 1);
+  assert.match(pushed[0].title, /Sound/);
+
+  parent.send(JSON.stringify({ type: 'push-test' }));
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(pushed.length, 2);
+  baby.close();
+  parent.close();
 });
 
 test('serves the app but not files outside public/', async () => {

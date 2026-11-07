@@ -1,6 +1,8 @@
 // BabyMonitor server: serves the web app and relays WebRTC signaling between
 // one baby station and any number of parent stations. Media flows directly
-// peer-to-peer; this server never sees the video or audio.
+// peer-to-peer; this server never sees the video or audio. It also watches the
+// baby station's sound level and heartbeat and sends push notifications, so
+// alerts reach parents whose phones are locked.
 
 import { createServer as createHttpsServer } from 'node:https';
 import { createServer as createHttpServer } from 'node:http';
@@ -11,12 +13,18 @@ import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
+import { PushAlerts } from './push.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(ROOT, 'public');
 const CERT_DIR = path.join(ROOT, 'certs');
+const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, 'data');
+// Contact for the push services (Apple, Google, Mozilla); a mailto: or https: URL.
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'https://github.com/christoffermattssonlangseth/BabyMonitor';
 
 const PORT = Number(process.env.PORT) || 8443;
+// e.g. HOST=127.0.0.1 to only accept connections from a local proxy (tailscale serve).
+const HOST = process.env.HOST || undefined;
 const PASSWORD = process.env.MONITOR_PASSWORD || '';
 // Set USE_HTTP=1 when running behind a reverse proxy / tunnel that terminates TLS.
 const USE_HTTP = process.env.USE_HTTP === '1';
@@ -127,11 +135,20 @@ function recordFailedLogin(ip) {
   failedLogins.set(ip, entry);
 }
 
-function attachSignaling(server) {
+// True if a parent with this push subscription has the app open on screen;
+// they already get in-app alerts, so no push is needed.
+function isWatching(endpoint) {
+  for (const [, c] of parents()) if (c.endpoint === endpoint && c.visible) return true;
+  return false;
+}
+
+function attachSignaling(server, push) {
   const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 256 * 1024 });
 
   wss.on('connection', (ws, req) => {
-    const ip = req.socket.remoteAddress;
+    // Behind a reverse proxy (USE_HTTP=1) every request comes from the proxy.
+    const forwarded = USE_HTTP && String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+    const ip = forwarded || req.socket.remoteAddress;
     let id = null;
     ws.isAlive = true;
     ws.on('pong', () => { ws.isAlive = true; });
@@ -179,9 +196,11 @@ function attachSignaling(server) {
           broadcastParents({ type: 'baby-online', babyId: id });
           notifyParentCount();
         } else {
-          clients.set(id, { ws, role: 'parent', name });
+          clients.set(id, { ws, role: 'parent', name, endpoint: null, visible: true });
           const baby = findBaby();
-          send(ws, { type: 'welcome', id, iceServers: ICE_SERVERS, babyId: baby ? baby.id : null });
+          send(ws, {
+            type: 'welcome', id, iceServers: ICE_SERVERS, babyId: baby ? baby.id : null, vapidPublicKey: push.publicKey,
+          });
           notifyParentCount();
         }
         return;
@@ -201,14 +220,37 @@ function attachSignaling(server) {
         case 'status': {
           // Sound level / state updates from the baby station.
           if (me.role !== 'baby') return;
-          broadcastParents({
-            type: 'status',
-            level: Number(msg.level) || 0,
-            camera: !!msg.camera,
-            t: Date.now(),
-          });
+          const level = Math.min(100, Math.max(0, Number(msg.level) || 0));
+          broadcastParents({ type: 'status', level, camera: !!msg.camera, t: Date.now() });
+          push.onLevel(level, isWatching);
           break;
         }
+        // --- Parent push notification settings ---
+        case 'parent-state':
+          // Which push subscription this device has, and whether the app is on screen.
+          if (me.role !== 'parent') return;
+          me.endpoint = typeof msg.endpoint === 'string' ? msg.endpoint : null;
+          me.visible = !!msg.visible;
+          break;
+        case 'push-subscribe':
+          if (me.role !== 'parent') return;
+          if (push.upsert(msg.subscription, { threshold: msg.threshold, sustain: msg.sustain, name: me.name })) {
+            me.endpoint = msg.subscription.endpoint;
+            send(ws, { type: 'push-ok' });
+          }
+          break;
+        case 'push-settings':
+          if (me.role !== 'parent' || !me.endpoint || !push.subs.has(me.endpoint)) return;
+          push.upsert(push.subs.get(me.endpoint).subscription, { threshold: msg.threshold, sustain: msg.sustain });
+          break;
+        case 'push-unsubscribe':
+          if (me.role !== 'parent' || typeof msg.endpoint !== 'string') return;
+          push.remove(msg.endpoint);
+          break;
+        case 'push-test':
+          if (me.role !== 'parent' || !me.endpoint) return;
+          push.test(me.endpoint);
+          break;
         case 'ping':
           send(ws, { type: 'pong' });
           break;
@@ -239,7 +281,9 @@ function attachSignaling(server) {
       ws.ping();
     }
   }, 10_000);
-  wss.on('close', () => clearInterval(heartbeat));
+  // Lost-contact alarm for parents whose phones are locked.
+  const contactCheck = setInterval(() => push.checkContact(isWatching), 2000);
+  wss.on('close', () => { clearInterval(heartbeat); clearInterval(contactCheck); });
   server.on('close', () => {
     for (const ws of wss.clients) ws.terminate();
     wss.close();
@@ -296,15 +340,17 @@ async function loadOrCreateCert() {
 
 // ---------------------------------------------------------------------------
 
-export async function start({ port = PORT, http = USE_HTTP } = {}) {
+export async function start({ port = PORT, host = HOST, http = USE_HTTP, dataDir = DATA_DIR, pushSend } = {}) {
   if (!PASSWORD) {
     throw new Error('Set a family password first, e.g.  MONITOR_PASSWORD="something-long" npm start');
   }
+  const push = await new PushAlerts({ dataDir, subject: VAPID_SUBJECT, send: pushSend }).init();
   const server = http
     ? createHttpServer(handleRequest)
     : createHttpsServer(await loadOrCreateCert(), handleRequest);
-  attachSignaling(server);
-  await new Promise((resolve) => server.listen(port, resolve));
+  attachSignaling(server, push);
+  server.push = push;
+  await new Promise((resolve) => server.listen(port, host, resolve));
   return server;
 }
 
@@ -314,9 +360,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const { port } = server.address();
     const scheme = USE_HTTP ? 'http' : 'https';
     console.log('\nBabyMonitor is running. Open one of these on your phones:');
-    for (const host of ['localhost', ...localAddresses().filter((a) => !a.includes(':'))]) {
-      console.log(`  ${scheme}://${host}:${port}`);
-    }
+    const hosts = HOST && HOST !== '0.0.0.0' ? [HOST] : ['localhost', ...localAddresses().filter((a) => !a.includes(':'))];
+    for (const host of hosts) console.log(`  ${scheme}://${host}:${port}`);
+    if (USE_HTTP) console.log('(Plain HTTP: put an HTTPS proxy such as `tailscale serve` in front of it.)');
     if (!USE_HTTP) {
       console.log('\n(The certificate is self-signed: accept the browser warning once per device.)');
     }

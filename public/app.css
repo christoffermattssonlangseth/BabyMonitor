@@ -168,3 +168,9 @@ details summary { color: var(--muted); cursor: pointer; }
   #parent { flex-direction: row; }
   .panel { width: 340px; flex: none; overflow: auto; align-content: start; }
 }
+
+.push-box { background: #171c35; border-radius: 12px; padding: 10px 12px; display: grid; gap: 8px; }
+.push-box .row { gap: 8px; }
+.push-box .row:empty, .push-box .row:not(:has(button:not([hidden]))) { display: none; }
+.muted { color: var(--muted); font-size: 14px; }
+.hint { margin: 0; color: var(--muted); font-size: 14px; }

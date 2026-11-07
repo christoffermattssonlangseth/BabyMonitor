@@ -99,6 +99,24 @@ function rmsToLevel(rms) {
   return Math.round(Math.min(100, Math.max(0, ((db + 60) / 60) * 100)));
 }
 
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isStandalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+
+// The service worker shows push notifications from the server.
+const swReady = 'serviceWorker' in navigator && window.isSecureContext
+  ? navigator.serviceWorker.register('/sw.js').then(() => navigator.serviceWorker.ready).catch((err) => {
+    console.warn('Service worker unavailable:', err);
+    return null;
+  })
+  : Promise.resolve(null);
+
+function base64UrlToBytes(b64) {
+  const pad = '='.repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
 const timeStr = (d = new Date()) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
 // ---------------------------------------------------------------------------
@@ -357,8 +375,13 @@ async function startParent(login) {
   }
   applySettings();
 
+  // iPhones ignore volume set from a web page; use the phone's buttons.
+  if (isIOS) $('volume-label').hidden = true;
+
+  const syncPushSettings = () => sig?.send({ type: 'push-settings', threshold: settings.threshold, sustain: settings.sustain });
   $('threshold').addEventListener('input', (e) => { settings.threshold = Number(e.target.value); applySettings(); save(); });
-  $('sustain').addEventListener('change', (e) => { settings.sustain = Number(e.target.value); save(); });
+  $('threshold').addEventListener('change', syncPushSettings);
+  $('sustain').addEventListener('change', (e) => { settings.sustain = Number(e.target.value); save(); syncPushSettings(); });
   $('volume').addEventListener('input', (e) => { settings.volume = Number(e.target.value); applySettings(); save(); });
   $('mute-btn').addEventListener('click', () => { settings.muted = !settings.muted; applySettings(); save(); });
   $('video-toggle').addEventListener('click', () => { settings.hideVideo = !settings.hideVideo; applySettings(); save(); });
@@ -370,12 +393,13 @@ async function startParent(login) {
   setInterval(() => { $('clock').textContent = timeStr().slice(0, 5); }, 1000);
   $('clock').textContent = timeStr().slice(0, 5);
 
-  // We're inside the "Start" click, so we may unlock audio + ask for notifications now.
+  // We're inside the "Start" tap, so audio may be unlocked now.
+  // On iPhone, 'playback' makes alert sounds play even with the silent switch on.
+  if (navigator.audioSession) {
+    try { navigator.audioSession.type = 'playback'; } catch { /* ignore */ }
+  }
   const alertCtx = new AudioContext();
   alertCtx.resume().catch(() => {});
-  if ('Notification' in window && Notification.permission === 'default') {
-    Notification.requestPermission().catch(() => {});
-  }
   keepAwake();
 
   // Activity log
@@ -417,8 +441,8 @@ async function startParent(login) {
     if (!sticky) alertHideTimer = setTimeout(() => { banner.hidden = true; }, 15_000);
     beep(kind);
     navigator.vibrate?.(kind === 'bad' ? [400, 200, 400, 200, 400] : [300, 150, 300]);
-    if (document.visibilityState !== 'visible' && 'Notification' in window && Notification.permission === 'granted') {
-      try { new Notification('Baby Monitor', { body: text, tag: 'baby-monitor', renotify: true }); } catch { /* ignore */ }
+    if (document.visibilityState !== 'visible' && swReg && Notification.permission === 'granted') {
+      swReg.showNotification('Baby Monitor', { body: text, tag: 'baby-monitor', renotify: true, icon: '/icon-192.png' }).catch(() => {});
     }
     log(text);
   }
@@ -457,6 +481,89 @@ async function startParent(login) {
       log('✅ Baby station is back');
     }
   }, 2000);
+
+  // Lock-screen alerts (Web Push). The server decides when to send them, so
+  // they arrive even while this page is paused on a locked phone.
+  let swReg = null;
+  let vapidKey = null;
+  let pushSub = null;
+
+  function renderPush(statusText) {
+    const supported = !!swReg && 'PushManager' in window;
+    const hint = $('push-hint');
+    hint.hidden = true;
+    ['push-enable', 'push-test', 'push-disable'].forEach((b) => { $(b).hidden = true; });
+    if (isIOS && !isStandalone) {
+      $('push-status').textContent = '– off';
+      hint.textContent = 'To get alerts while your iPhone is locked: tap the Share button ⎋ in Safari, choose “Add to Home Screen”, then open Baby Monitor from the Home Screen icon.';
+      hint.hidden = false;
+      return;
+    }
+    if (!supported) {
+      $('push-status').textContent = '– not available';
+      hint.textContent = 'This browser can’t receive push alerts here. They need a trusted https address (see the README), and on iPhone iOS 16.4 or newer.';
+      hint.hidden = false;
+      return;
+    }
+    if (pushSub) {
+      $('push-status').textContent = statusText || '– on';
+      $('push-test').hidden = false;
+      $('push-disable').hidden = false;
+    } else {
+      $('push-status').textContent = statusText || '– off';
+      hint.textContent = Notification.permission === 'denied'
+        ? 'Notifications are blocked for this app. Allow them in Settings → Notifications → Baby Monitor.'
+        : 'Get a notification on your lock screen when the baby makes noise or the baby station goes offline.';
+      hint.hidden = false;
+      $('push-enable').hidden = Notification.permission === 'denied';
+    }
+  }
+
+  function reportState() {
+    sig?.send({ type: 'parent-state', endpoint: pushSub?.endpoint || null, visible: document.visibilityState === 'visible' });
+  }
+  document.addEventListener('visibilitychange', reportState);
+
+  function registerPush() {
+    if (!pushSub) return;
+    sig.send({ type: 'push-subscribe', subscription: pushSub.toJSON(), threshold: settings.threshold, sustain: settings.sustain });
+  }
+
+  swReady.then(async (reg) => {
+    swReg = reg;
+    if (reg && 'PushManager' in window) pushSub = await reg.pushManager.getSubscription().catch(() => null);
+    renderPush();
+    if (pushSub && sig?.id) { registerPush(); reportState(); }
+  });
+
+  $('push-enable').addEventListener('click', async () => {
+    if (!vapidKey || !swReg) return;
+    $('push-status').textContent = '– turning on…';
+    try {
+      // Called straight from the tap: iOS requires a user gesture here.
+      pushSub = await swReg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64UrlToBytes(vapidKey) });
+      registerPush();
+      reportState();
+      renderPush();
+      log('🔔 Lock-screen alerts turned on');
+    } catch (err) {
+      pushSub = null;
+      renderPush(`– failed: ${err.message}`);
+    }
+  });
+  $('push-test').addEventListener('click', () => {
+    sig.send({ type: 'push-test' });
+    $('push-status').textContent = '– test sent';
+  });
+  $('push-disable').addEventListener('click', async () => {
+    const endpoint = pushSub?.endpoint;
+    await pushSub?.unsubscribe().catch(() => {});
+    pushSub = null;
+    if (endpoint) sig.send({ type: 'push-unsubscribe', endpoint });
+    reportState();
+    renderPush();
+    log('🔕 Lock-screen alerts turned off');
+  });
 
   // WebRTC
   function closePc() {
@@ -530,9 +637,15 @@ async function startParent(login) {
     onFatal: (msg) => { cleanup(); showFatal(msg); },
     onMessage: (msg) => {
       switch (msg.type) {
+        case 'push-ok':
+          renderPush();
+          break;
         case 'welcome':
           iceServers = msg.iceServers;
           babyId = msg.babyId;
+          vapidKey = msg.vapidPublicKey;
+          registerPush();
+          reportState();
           if (babyId) {
             setPill($('parent-conn'), 'Connecting to baby…', 'warn');
             requestOffer();

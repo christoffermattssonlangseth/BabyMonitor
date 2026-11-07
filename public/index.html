@@ -9,7 +9,8 @@
   <title>Baby Monitor</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="/icon.svg">
+  <link rel="apple-touch-icon" href="/icon-180.png">
+  <meta name="apple-mobile-web-app-title" content="Baby Monitor">
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
@@ -93,11 +94,20 @@
         </label>
       </div>
       <div class="row">
-        <label>Volume <input id="volume" type="range" min="0" max="1" step="0.05" value="1"></label>
+        <label id="volume-label">Volume <input id="volume" type="range" min="0" max="1" step="0.05" value="1"></label>
         <button id="mute-btn">🔈 Mute</button>
         <button id="video-toggle">🙈 Hide video</button>
         <button id="fullscreen-btn">⛶ Full</button>
       </div>
+      <section class="push-box">
+        <div><strong>🔔 Lock-screen alerts</strong> <span id="push-status" class="muted"></span></div>
+        <p id="push-hint" class="hint" hidden></p>
+        <div class="row">
+          <button id="push-enable" class="primary" hidden>Turn on</button>
+          <button id="push-test" hidden>Send test</button>
+          <button id="push-disable" class="ghost" hidden>Turn off</button>
+        </div>
+      </section>
       <details>
         <summary>Activity log</summary>
         <ul id="log"></ul>
