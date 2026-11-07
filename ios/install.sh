@@ -114,6 +114,7 @@ cat <<'EOF'
 First time on a phone?
   • Settings → Privacy & Security → Developer Mode → On (the phone restarts).
   • Settings → General → VPN & Device Management → your Apple ID → Trust.
-With a free Apple ID the app stops opening after 7 days. Run ./install.sh again to renew it.
+With a paid developer account the app works for a year (a free Apple ID: 7 days).
+Run ./install.sh again to renew it or to install updates.
 EOF
 [ "$failed" -eq 0 ]

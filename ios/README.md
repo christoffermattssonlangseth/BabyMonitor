@@ -35,10 +35,10 @@ Tailscale app. There is no server and nothing to pay for.
    Capabilities** → **Team**: pick your name. If Xcode says the bundle
    identifier is taken, change it to something unique, e.g.
    `com.yourname.BabyMonitor`.
-   Optional: click **+ Capability** → **Time Sensitive Notifications**, so alerts
-   break through Sleep and other Focus modes. If Xcode refuses it for a free
-   account, skip it and see [Make sure alerts get through at
-   night](#make-sure-alerts-get-through-at-night).
+   Pick your **paid developer team**, not "Personal Team". The project already
+   turns on **Time Sensitive Notifications**, so alerts can break through Sleep
+   and other Focus modes. (A free "Personal Team" can't use that capability. To
+   use one, delete `CODE_SIGN_ENTITLEMENTS` from the build settings.)
 4. Connect each iPhone to the Mac with a cable once, unlock it and tap **Trust
    This Computer**.
 
@@ -55,9 +55,9 @@ time on each phone:
 - Settings → Privacy & Security → **Developer Mode** → On (the phone restarts).
 - Settings → General → VPN & Device Management → your Apple ID → **Trust**.
 
-With a free Apple ID the app stops opening after **7 days**. Put a weekly
-reminder in your calendar and run `./install.sh` again. It takes about a
-minute, and your settings are kept.
+With a paid developer account the app keeps working for **a year**. Run
+`./install.sh` again to renew it or to get updates; your settings are kept.
+(With a free Apple ID it would stop after 7 days.)
 
 ## Use
 
@@ -84,10 +84,9 @@ then **Start**. Allow notifications and local network access.
 
 ### Make sure alerts get through at night
 
-- **Sleep Focus / Do Not Disturb:** Settings → Notifications → Baby Monitor →
-  turn on **Time Sensitive Notifications** (if you added the capability).
-  Otherwise add Baby Monitor to the allowed apps: Settings → Focus → Sleep →
-  Apps.
+- **Sleep Focus / Do Not Disturb:** check that Settings → Notifications → Baby
+  Monitor → **Time Sensitive Notifications** is on. To be extra safe, also add
+  Baby Monitor to the allowed apps: Settings → Focus → Sleep → Apps.
 - **Silent switch:** the live sound and the in-app alert tones play even with
   the silent switch on, because the app works like a music app. The
   notification sounds themselves follow the silent switch.
