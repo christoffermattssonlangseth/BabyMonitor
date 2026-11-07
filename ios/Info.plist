@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_babymonitor._tcp</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Baby Monitor connects the phones in your home directly over your Wi-Fi.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>The baby station sends live video of the crib to your phones.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>The baby station listens for your baby and sends the sound to your phones.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
+</dict>
+</plist>

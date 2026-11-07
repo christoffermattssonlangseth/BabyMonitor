@@ -1,0 +1,37 @@
+name: iOS app
+
+on:
+  push:
+    paths: ['ios/**', '.github/workflows/ios.yml']
+  pull_request:
+    paths: ['ios/**', '.github/workflows/ios.yml']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Logic tests
+        working-directory: ios
+        run: |
+          swiftc -o "$RUNNER_TEMP/logic-tests" BabyMonitor/Core/Framing.swift BabyMonitor/Core/Detection.swift Tests/main.swift
+          "$RUNNER_TEMP/logic-tests"
+
+      - name: Build for iOS Simulator
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project BabyMonitor.xcodeproj \
+            -scheme BabyMonitor \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee "$RUNNER_TEMP/build.log" \
+            | grep -E "error:|warning:|BUILD (SUCCEEDED|FAILED)" || true
+          grep -q "BUILD SUCCEEDED" "$RUNNER_TEMP/build.log"
