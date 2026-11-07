@@ -19,7 +19,7 @@ jobs:
       - name: Logic tests
         working-directory: ios
         run: |
-          swiftc -o "$RUNNER_TEMP/logic-tests" BabyMonitor/Core/Framing.swift BabyMonitor/Core/Detection.swift Tests/main.swift
+          swiftc -o "$RUNNER_TEMP/logic-tests" BabyMonitor/Core/Framing.swift BabyMonitor/Core/Detection.swift BabyMonitor/Core/Codec.swift Tests/main.swift
           "$RUNNER_TEMP/logic-tests"
 
       - name: Build for iOS Simulator
@@ -35,3 +35,12 @@ jobs:
             | tee "$RUNNER_TEMP/build.log" \
             | grep -E "error:|warning:|BUILD (SUCCEEDED|FAILED)" || true
           grep -q "BUILD SUCCEEDED" "$RUNNER_TEMP/build.log"
+
+      - name: Install script finds no phones on a build machine
+        working-directory: ios
+        run: |
+          set +e
+          ./install.sh > "$RUNNER_TEMP/install.log" 2>&1
+          code=$?
+          cat "$RUNNER_TEMP/install.log"
+          test "$code" -eq 3 && grep -q "No iPhone found" "$RUNNER_TEMP/install.log"

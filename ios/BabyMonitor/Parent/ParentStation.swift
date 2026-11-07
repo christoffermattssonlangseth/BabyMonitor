@@ -10,6 +10,8 @@ final class ParentStation: ObservableObject {
         case connecting(String)
         case live(String)
         case cannotConnect
+        /// The nursery's Tailscale address doesn't answer.
+        case unreachable(String)
         case localNetworkDenied
     }
 
@@ -31,6 +33,8 @@ final class ParentStation: ObservableObject {
     @Published private(set) var babyCameraOn = true
     @Published private(set) var banner: Banner?
     @Published private(set) var log: [LogEntry] = []
+    /// True when this phone isn't on Wi-Fi: the baby station sends compressed sound.
+    @Published private(set) var dataSaver = false
 
     // Settings, remembered between launches.
     @Published var threshold: Double {
@@ -76,6 +80,8 @@ final class ParentStation: ObservableObject {
 
     private let password: String
     private let deviceName: String
+    /// The nursery phone's Tailscale address, for connecting away from home.
+    private let remoteAddress: String
     private let defaults = UserDefaults.standard
     private let player = AudioPlayer()
     private var started = false
@@ -90,16 +96,20 @@ final class ParentStation: ObservableObject {
     private var retryScheduled = false
     private var failedAttempts = 0
     private var detector: NoiseDetector
-    private var watchdog = ContactWatchdog(timeout: 10)
+    // 15 s leaves time to switch from home Wi-Fi to cellular without a false alarm.
+    private var watchdog = ContactWatchdog(timeout: 15)
+    private let wifiMonitor = NWPathMonitor(requiredInterfaceType: .wifi)
+    private var lowData = false
     private var watchdogTimer: DispatchSourceTimer?
     private var lastAlarm = Date.distantPast
     private var appActive = true
     private var showVideoSetting: Bool
     private var stopped = false
 
-    init(password: String, deviceName: String) {
+    init(password: String, deviceName: String, remoteAddress: String) {
         self.password = password
         self.deviceName = deviceName
+        self.remoteAddress = remoteAddress.trimmingCharacters(in: .whitespacesAndNewlines)
         let stored = UserDefaults.standard
         let threshold = stored.object(forKey: "threshold") as? Double ?? 35
         let sustain = stored.object(forKey: "sustain") as? Double ?? 2
@@ -125,7 +135,17 @@ final class ParentStation: ObservableObject {
         }
         player.volume = Float(volume)
         player.muted = muted
+        wifiMonitor.pathUpdateHandler = { [weak self] path in
+            guard let self else { return }
+            let low = path.status != .satisfied
+            guard low != self.lowData else { return }
+            self.lowData = low
+            self.sendControl()
+            self.addLog(low ? "📶 Not on Wi-Fi: data saver on" : "📶 On Wi-Fi: full quality")
+            DispatchQueue.main.async { self.dataSaver = low }
+        }
         queue.async {
+            self.wifiMonitor.start(queue: self.queue)
             self.startBrowser()
             self.startWatchdog()
         }
@@ -136,6 +156,7 @@ final class ParentStation: ObservableObject {
         queue.async {
             self.stopped = true
             self.watchdogTimer?.cancel()
+            self.wifiMonitor.cancel()
             self.browser?.cancel()
             self.browser = nil
             self.connection?.cancel()
@@ -196,15 +217,24 @@ final class ParentStation: ObservableObject {
 
     private func connectIfNeeded() {
         guard !stopped, connection == nil, !retryScheduled else { return }
-        guard let result = results.first, case let .service(name, _, _, _) = result.endpoint else {
-            if currentPhase != .localNetworkDenied { setPhase(.searching) }
-            return
+        if let result = results.first, case let .service(name, _, _, _) = result.endpoint {
+            // Same Wi-Fi: found with Bonjour.
+            connect(to: result.endpoint, name: name, remote: false)
+        } else if !remoteAddress.isEmpty, let port = NWEndpoint.Port(rawValue: BonjourService.port) {
+            // Away from home: reach the nursery phone through Tailscale.
+            connect(to: .hostPort(host: NWEndpoint.Host(remoteAddress), port: port), name: "Nursery (via Tailscale)", remote: true)
+        } else if currentPhase != .localNetworkDenied {
+            setPhase(.searching)
         }
-        connect(to: result.endpoint, name: name)
     }
 
-    private func connect(to endpoint: NWEndpoint, name: String) {
-        if currentPhase != .cannotConnect { setPhase(.connecting(name)) }
+    private func connect(to endpoint: NWEndpoint, name: String, remote: Bool) {
+        switch currentPhase {
+        case .cannotConnect, .unreachable:
+            break // keep showing the problem while retrying quietly
+        default:
+            setPhase(.connecting(name))
+        }
         let connection = FramedConnection(NWConnection(to: endpoint, using: .babyMonitor(password: password)), queue: queue)
         self.connection = connection
 
@@ -226,13 +256,16 @@ final class ParentStation: ObservableObject {
             if case .live = self.currentPhase {
                 self.addLog("Disconnected from \(name)")
                 self.setPhase(.searching)
+            } else if error?.isTLSFailure == true {
+                // Reached the baby station, but the password doesn't match.
+                self.setPhase(.cannotConnect)
+            } else if remote {
+                self.setPhase(.unreachable(self.remoteAddress))
             } else {
-                // Never got through. A wrong password fails the TLS handshake;
-                // repeated failures while the station is visible mean the same.
+                // Repeated failures while the station is visible on the Wi-Fi
+                // almost always mean a wrong password.
                 self.failedAttempts += 1
-                if error?.isTLSFailure == true || self.failedAttempts >= 3 {
-                    self.setPhase(.cannotConnect)
-                }
+                if self.failedAttempts >= 3 { self.setPhase(.cannotConnect) }
             }
             self.scheduleRetry()
         }
@@ -253,7 +286,7 @@ final class ParentStation: ObservableObject {
 
     private func sendControl() {
         guard let connection, connection.isReady else { return }
-        connection.send(.control, json: Control(wantsVideo: appActive && showVideoSetting))
+        connection.send(.control, json: Control(wantsVideo: appActive && showVideoSetting, lowData: lowData))
     }
 
     private func setPhase(_ phase: Phase) {
@@ -272,6 +305,8 @@ final class ParentStation: ObservableObject {
         switch kind {
         case .audio:
             player.enqueue(pcm16: payload)
+        case .audioMuLaw:
+            player.enqueue(pcm16: MuLaw.decodeTo16kPCM(payload))
         case .video:
             guard appActive, showVideoSetting, let image = UIImage(data: payload) else { return }
             DispatchQueue.main.async { self.frame = image }

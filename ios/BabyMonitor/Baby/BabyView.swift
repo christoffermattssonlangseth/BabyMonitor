@@ -38,6 +38,7 @@ struct BabyView: View {
                         .background(.red.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
                 }
                 Spacer()
+                remoteAccessInfo
                 LevelMeter(level: station.level)
                 HStack(spacing: 10) {
                     Button {
@@ -93,6 +94,31 @@ struct BabyView: View {
             setDark(false)
             station.stop()
         }
+        .task {
+            while !Task.isCancelled {
+                station.refreshRemoteAddress()
+                try? await Task.sleep(for: .seconds(10))
+            }
+        }
+    }
+
+    private var remoteAccessInfo: some View {
+        Group {
+            if let address = station.remoteAddress {
+                Label {
+                    Text("Away from home, connect to **\(address)**")
+                } icon: {
+                    Image(systemName: "antenna.radiowaves.left.and.right")
+                }
+            } else {
+                Label("To watch away from home, install Tailscale on this phone.", systemImage: "wifi")
+            }
+        }
+        .font(.footnote)
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 10))
+        .textSelection(.enabled)
     }
 
     private var watchingText: String {

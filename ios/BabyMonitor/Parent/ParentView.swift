@@ -7,8 +7,8 @@ struct ParentView: View {
     @State private var showLog = false
     let onLeave: () -> Void
 
-    init(password: String, name: String, onLeave: @escaping () -> Void) {
-        _station = StateObject(wrappedValue: ParentStation(password: password, deviceName: name))
+    init(password: String, name: String, remoteAddress: String, onLeave: @escaping () -> Void) {
+        _station = StateObject(wrappedValue: ParentStation(password: password, deviceName: name, remoteAddress: remoteAddress))
         self.onLeave = onLeave
     }
 
@@ -51,6 +51,9 @@ struct ParentView: View {
             VStack(spacing: 10) {
                 HStack {
                     Pill(text: phaseText, color: phaseColor)
+                    if station.dataSaver {
+                        Pill(text: "Data saver", color: .blue)
+                    }
                     Spacer()
                     TimelineView(.everyMinute) { context in
                         Pill(text: context.date.formatted(date: .omitted, time: .shortened))
@@ -99,6 +102,8 @@ struct ParentView: View {
             }
         case .cannotConnect:
             Text("Found the baby station but can’t connect.\nCheck that both phones use the same family password.")
+        case .unreachable(let address):
+            Text("Can’t reach the nursery phone at \(address).\nCheck that Tailscale is connected on both phones and that Baby Monitor is running in the nursery.")
         case .localNetworkDenied:
             VStack(spacing: 12) {
                 Text("Baby Monitor needs Local Network access to find the baby station.")
@@ -126,6 +131,7 @@ struct ParentView: View {
         case .connecting: return "Connecting…"
         case .live(let name): return "Live · \(name)"
         case .cannotConnect: return "Can’t connect"
+        case .unreachable: return "Can’t reach nursery"
         case .localNetworkDenied: return "No network access"
         }
     }
@@ -134,7 +140,7 @@ struct ParentView: View {
         switch station.phase {
         case .live: return .green
         case .searching, .connecting: return .orange
-        case .cannotConnect, .localNetworkDenied: return .red
+        case .cannotConnect, .unreachable, .localNetworkDenied: return .red
         }
     }
 

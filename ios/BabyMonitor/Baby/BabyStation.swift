@@ -10,6 +10,8 @@ final class BabyStation: ObservableObject {
     @Published private(set) var isOnline = false
     @Published private(set) var problem: String?
     @Published private(set) var usingFrontCamera = false
+    /// Address parents can use away from home, if Tailscale is running on this phone.
+    @Published private(set) var remoteAddress: String?
     @Published var cameraOn = true {
         didSet {
             let on = cameraOn
@@ -42,6 +44,8 @@ final class BabyStation: ObservableObject {
         var name = "Parent"
         var greeted = false
         var wantsVideo = true
+        var lowData = false
+        var lastVideoSent = Date.distantPast
         init(_ connection: FramedConnection) { self.connection = connection }
     }
 
@@ -73,6 +77,12 @@ final class BabyStation: ObservableObject {
             for link in self.parents.values { link.connection.cancel() }
             self.parents.removeAll()
         }
+    }
+
+    /// Tailscale may connect after the app starts, so the view calls this regularly.
+    func refreshRemoteAddress() {
+        let address = tailscaleIPv4Address()
+        if address != remoteAddress { remoteAddress = address }
     }
 
     func switchCamera() {
@@ -127,7 +137,8 @@ final class BabyStation: ObservableObject {
     private func startListener() {
         guard !stopped else { return }
         do {
-            let listener = try NWListener(using: .babyMonitor(password: password))
+            let port = NWEndpoint.Port(rawValue: BonjourService.port)!
+            let listener = try NWListener(using: .babyMonitor(password: password), on: port)
             listener.service = NWListener.Service(name: name, type: BonjourService.type)
             listener.stateUpdateHandler = { [weak self] state in self?.listenerStateChanged(state) }
             listener.newConnectionHandler = { [weak self] connection in self?.accept(connection) }
@@ -141,7 +152,11 @@ final class BabyStation: ObservableObject {
     private func listenerStateChanged(_ state: NWListener.State) {
         switch state {
         case .ready:
-            DispatchQueue.main.async { self.isOnline = true }
+            let address = tailscaleIPv4Address()
+            DispatchQueue.main.async {
+                self.isOnline = true
+                self.remoteAddress = address
+            }
         case .failed:
             DispatchQueue.main.async { self.isOnline = false }
             listener?.cancel()
@@ -175,6 +190,7 @@ final class BabyStation: ObservableObject {
             case .control:
                 guard let control = try? JSONDecoder().decode(Control.self, from: payload) else { return }
                 link.wantsVideo = control.wantsVideo
+                link.lowData = control.lowData ?? false
                 self.updateWantsFrames()
             default:
                 break
@@ -205,16 +221,26 @@ final class BabyStation: ObservableObject {
 
     private func broadcastAudio(_ pcm: Data, level: Int) {
         latestLevel = level
-        // Skip a parent that has fallen more than ~3 s behind (e.g. weak Wi-Fi).
+        var compressed: Data?
+        // Skip a parent that has fallen more than ~3 s behind (e.g. weak signal).
         for link in readyParents where link.connection.pendingSends < 30 {
-            link.connection.send(.audio, pcm)
+            if link.lowData {
+                if compressed == nil { compressed = MuLaw.encode16kPCM(pcm) }
+                link.connection.send(.audioMuLaw, compressed!)
+            } else {
+                link.connection.send(.audio, pcm)
+            }
         }
         DispatchQueue.main.async { self.level = level }
     }
 
     private func broadcastVideo(_ jpeg: Data) {
-        // Drop frames for slow connections so sound never waits behind video.
+        let now = Date()
+        // Drop frames for slow connections so sound never waits behind video,
+        // and send only 1 frame per second to parents on cellular.
         for link in readyParents where link.wantsVideo && link.connection.pendingSends < 3 {
+            if link.lowData, now.timeIntervalSince(link.lastVideoSent) < 1 { continue }
+            link.lastVideoSent = now
             link.connection.send(.video, jpeg)
         }
     }

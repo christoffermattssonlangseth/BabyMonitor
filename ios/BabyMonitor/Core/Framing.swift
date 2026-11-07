@@ -15,6 +15,8 @@ enum MessageType: UInt8 {
     case status = 4
     /// parent → baby, JSON `Control`
     case control = 5
+    /// baby → parent, 100 ms of 8 kHz G.711 µ-law (data saver, for cellular)
+    case audioMuLaw = 6
 }
 
 struct Hello: Codable, Equatable {
@@ -32,6 +34,8 @@ struct Status: Codable, Equatable {
 struct Control: Codable, Equatable {
     /// False while the parent app is in the background or video is hidden, to save battery.
     var wantsVideo: Bool
+    /// True when the parent isn't on Wi-Fi: compressed sound, 1 video frame per second.
+    var lowData: Bool?
 }
 
 enum Framing {

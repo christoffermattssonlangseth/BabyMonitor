@@ -5,6 +5,24 @@ import Network
 enum BonjourService {
     /// Must match NSBonjourServices in Info.plist.
     static let type = "_babymonitor._tcp"
+    /// Fixed port so parents can also connect by address (e.g. over Tailscale from anywhere).
+    static let port: UInt16 = 47820
+}
+
+/// Finds this phone's Tailscale address (100.64.0.0/10), if the Tailscale app is connected.
+func tailscaleIPv4Address() -> String? {
+    var list: UnsafeMutablePointer<ifaddrs>?
+    guard getifaddrs(&list) == 0, let first = list else { return nil }
+    defer { freeifaddrs(list) }
+    for pointer in sequence(first: first, next: { $0.pointee.ifa_next }) {
+        guard let address = pointer.pointee.ifa_addr, address.pointee.sa_family == UInt8(AF_INET) else { continue }
+        let ipv4 = address.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr.s_addr }
+        let host = UInt32(bigEndian: ipv4)
+        // 100.64.0.0/10: first byte 100, second byte 64–127.
+        guard host >> 24 == 100, (host >> 16) & 0xC0 == 0x40 else { continue }
+        return "\(host >> 24).\((host >> 16) & 0xFF).\((host >> 8) & 0xFF).\(host & 0xFF)"
+    }
+    return nil
 }
 
 extension NWParameters {

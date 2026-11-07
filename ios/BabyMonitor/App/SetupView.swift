@@ -4,6 +4,7 @@ struct SetupView: View {
     @AppStorage("password") private var password = ""
     @AppStorage("deviceName") private var deviceName = ""
     @AppStorage("role") private var roleRaw = Role.parent.rawValue
+    @AppStorage("nurseryAddress") private var nurseryAddress = ""
     let onStart: (Session) -> Void
 
     private var role: Role { Role(rawValue: roleRaw) ?? .parent }
@@ -41,12 +42,25 @@ struct SetupView: View {
                         .textContentType(.password)
                     TextField(role == .parent ? "Your name, e.g. Mom" : "Room name, e.g. Nursery", text: $deviceName)
                 } footer: {
-                    Text("Use the same password on every phone. All phones must be on the same Wi-Fi.")
+                    Text("Use the same password on every phone.")
+                }
+
+                if role == .parent {
+                    Section {
+                        TextField("Nursery’s Tailscale address (optional)", text: $nurseryAddress)
+                            .keyboardType(.numbersAndPunctuation)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    } header: {
+                        Text("Away from home")
+                    } footer: {
+                        Text("To listen over cellular, install Tailscale on both phones and enter the address shown on the nursery phone, e.g. 100.101.102.103. At home the phones find each other by themselves.")
+                    }
                 }
 
                 Section {
                     Button {
-                        onStart(Session(role: role, password: password, name: resolvedName))
+                        onStart(Session(role: role, password: password, name: resolvedName, remoteAddress: role == .parent ? nurseryAddress : ""))
                     } label: {
                         Text("Start")
                             .bold()

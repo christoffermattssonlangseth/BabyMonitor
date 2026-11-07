@@ -39,6 +39,7 @@ struct Session {
     let role: Role
     let password: String
     let name: String
+    let remoteAddress: String
 }
 
 struct RootView: View {
@@ -50,7 +51,7 @@ struct RootView: View {
             case .baby:
                 BabyView(password: session.password, name: session.name) { self.session = nil }
             case .parent:
-                ParentView(password: session.password, name: session.name) { self.session = nil }
+                ParentView(password: session.password, name: session.name, remoteAddress: session.remoteAddress) { self.session = nil }
             }
         } else {
             SetupView { self.session = $0 }

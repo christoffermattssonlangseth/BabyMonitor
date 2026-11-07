@@ -1,5 +1,5 @@
 // Tests for the platform-independent logic. Run on a Mac:
-//   cd ios && swiftc -o /tmp/logic-tests BabyMonitor/Core/Framing.swift BabyMonitor/Core/Detection.swift Tests/main.swift && /tmp/logic-tests
+//   cd ios && swiftc -o /tmp/logic-tests BabyMonitor/Core/Framing.swift BabyMonitor/Core/Detection.swift BabyMonitor/Core/Codec.swift Tests/main.swift && /tmp/logic-tests
 import Foundation
 
 var failures = 0
@@ -71,6 +71,30 @@ do {
     check(w.check(at: t0 + 30) == nil, "lost reported once")
     check(w.heard(at: t0 + 31) == .restored, "restored")
     check(w.heard(at: t0 + 32) == nil, "restored reported once")
+}
+
+// MARK: µ-law (data saver)
+do {
+    check(MuLaw.decode(MuLaw.encode(0)) == 0, "silence stays silent")
+    for value: Int16 in [100, -100, 1000, -1000, 8000, -8000, 30000, -30000] {
+        let back = Int(MuLaw.decode(MuLaw.encode(value)))
+        let error = abs(back - Int(value))
+        check(error <= max(16, abs(Int(value)) / 16), "µ-law round trip of \(value) gave \(back)")
+    }
+    check(abs(Int(MuLaw.decode(MuLaw.encode(.min)))) > 32000, "clips loud negative")
+    check(abs(Int(MuLaw.decode(MuLaw.encode(.max)))) > 32000, "clips loud positive")
+
+    var tone = Data()
+    for i in 0..<1600 {
+        let v = Int16(10000 * sin(2 * Double.pi * 440 * Double(i) / 16000)).littleEndian
+        withUnsafeBytes(of: v) { tone.append(contentsOf: $0) }
+    }
+    let compressed = MuLaw.encode16kPCM(tone)
+    check(compressed.count == 800, "100 ms of 16 kHz PCM → 800 µ-law bytes (4× smaller)")
+    let restored = MuLaw.decodeTo16kPCM(compressed)
+    check(restored.count == tone.count, "decodes back to 16 kHz PCM")
+    let levelDiff = abs(SoundLevel.level(pcm16: restored) - SoundLevel.level(pcm16: tone))
+    check(levelDiff <= 2, "loudness preserved (diff \(levelDiff))")
 }
 
 if failures == 0 {
