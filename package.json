@@ -1,0 +1,27 @@
+{
+  "name": "baby-monitor",
+  "version": "1.0.0",
+  "description": "Self-hosted baby monitor: live video, sound and noise alerts on your phones",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/christoffermattssonlangseth/BabyMonitor.git"
+  },
+  "bugs": {
+    "url": "https://github.com/christoffermattssonlangseth/BabyMonitor/issues"
+  },
+  "homepage": "https://github.com/christoffermattssonlangseth/BabyMonitor#readme",
+  "dependencies": {
+    "selfsigned": "^5.5.0",
+    "ws": "^8.22.1"
+  },
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  }
+}

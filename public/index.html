@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#14182b">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Baby Monitor</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <!-- Setup -->
+  <main id="setup" class="screen">
+    <div class="card">
+      <img src="/icon.svg" alt="" class="logo">
+      <h1>Baby Monitor</h1>
+      <form id="setup-form">
+        <label>Family password
+          <input id="password" type="password" autocomplete="current-password" required>
+        </label>
+        <label>Name of this device
+          <input id="device-name" type="text" maxlength="40" placeholder="e.g. Mom's phone">
+        </label>
+        <fieldset class="roles">
+          <legend>This device is…</legend>
+          <label class="role">
+            <input type="radio" name="role" value="parent" checked>
+            <span><strong>👀 Parent station</strong><small>Watch and listen</small></span>
+          </label>
+          <label class="role">
+            <input type="radio" name="role" value="baby">
+            <span><strong>👶 Baby station</strong><small>Stays in the nursery</small></span>
+          </label>
+        </fieldset>
+        <label class="check"><input id="remember" type="checkbox" checked> Remember on this device</label>
+        <button type="submit" class="primary">Start</button>
+        <p id="setup-error" class="error" role="alert"></p>
+      </form>
+    </div>
+  </main>
+
+  <!-- Baby station -->
+  <main id="baby" class="screen" hidden>
+    <video id="baby-preview" autoplay playsinline muted></video>
+    <div class="overlay-top">
+      <span id="baby-conn" class="pill">Connecting…</span>
+      <span id="baby-viewers" class="pill">0 parents watching</span>
+    </div>
+    <div class="meter"><div id="baby-meter-fill"></div></div>
+    <div class="controls">
+      <select id="camera-select" aria-label="Camera"></select>
+      <button id="baby-video-toggle">📷 Camera on</button>
+      <button id="night-btn">🌙 Dark screen</button>
+      <button id="baby-leave" class="ghost">Leave</button>
+    </div>
+    <p id="baby-error" class="error banner" role="alert" hidden></p>
+    <div id="night-overlay" hidden><p>Tap to wake screen</p></div>
+  </main>
+
+  <!-- Parent station -->
+  <main id="parent" class="screen" hidden>
+    <div id="video-wrap">
+      <video id="remote-video" autoplay playsinline></video>
+      <div id="audio-only-msg" hidden>🎧 Listening (video hidden)</div>
+      <div id="waiting" class="center-msg">Waiting for the baby station…</div>
+      <button id="tap-to-listen" class="primary big" hidden>🔊 Tap to start listening</button>
+      <div class="overlay-top">
+        <span id="parent-conn" class="pill">Connecting…</span>
+        <span id="clock" class="pill"></span>
+      </div>
+      <div id="alert-banner" class="alert" hidden role="alert"></div>
+    </div>
+    <div class="panel">
+      <div class="meter labeled">
+        <div id="parent-meter-fill"></div>
+        <div id="threshold-mark"></div>
+      </div>
+      <div class="row">
+        <label>Alert when sound is above
+          <input id="threshold" type="range" min="5" max="90" value="35">
+        </label>
+        <label>for at least
+          <select id="sustain">
+            <option value="1">1 s</option>
+            <option value="2" selected>2 s</option>
+            <option value="4">4 s</option>
+            <option value="8">8 s</option>
+          </select>
+        </label>
+      </div>
+      <div class="row">
+        <label>Volume <input id="volume" type="range" min="0" max="1" step="0.05" value="1"></label>
+        <button id="mute-btn">🔈 Mute</button>
+        <button id="video-toggle">🙈 Hide video</button>
+        <button id="fullscreen-btn">⛶ Full</button>
+      </div>
+      <details>
+        <summary>Activity log</summary>
+        <ul id="log"></ul>
+      </details>
+      <button id="parent-leave" class="ghost">Leave</button>
+    </div>
+  </main>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
